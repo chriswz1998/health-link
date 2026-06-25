@@ -1,66 +1,87 @@
-name: Deploy finalterm Ready Package
+name: Deploy Health Link Ready Package
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+push:
+branches:
+  - main
+workflow_dispatch:
 
 env:
-  AZURE_WEBAPP_NAME: finalterm
-  NODE_VERSION: '22.x'
+
+# 改成你的 Azure App Service 名字，例如 healthy-link-chris
+
+AZURE_WEBAPP_NAME: finalterm
+NODE_VERSION: '22.x'
 
 jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+build-and-deploy:
+runs-on: ubuntu-latest
+  
+  ```
+steps:
+  - name: Checkout source
+    uses: actions/checkout@v4
 
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+  - name: Setup Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: ${{ env.NODE_VERSION }}
+      cache: 'npm'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+  - name: Install dependencies on Ubuntu
+    run: npm ci
 
-      - name: Install dependencies on Ubuntu
-        run: npm ci
+  - name: Build frontend and server
+    run: npm run build
 
-      - name: Build frontend
-        run: npm run build
+  - name: Verify build output before pruning
+    run: |
+      test -d dist
+      test -f dist/index.html
+      test -d dist-server
+      test -f dist-server/index.js
+      test -f package.json
+      node --check dist-server/index.js
 
-      - name: Remove dev dependencies
-        run: npm prune --omit=dev
+  - name: Remove dev dependencies
+    run: npm prune --omit=dev
 
-      - name: Verify runtime package
-        run: |
-          test -d dist
-          test -f dist/index.html
-          test -f package.json
-          test -d server
-          test -d node_modules
-          test -f node_modules/.bin/tsx
-          npm list tsx --depth=0
+  - name: Verify runtime dependencies
+    run: |
+      test -d node_modules
+      test -d node_modules/express
+      test -d node_modules/dotenv
+      npm list express --depth=0
+      npm list dotenv --depth=0
 
-      - name: Create ready-to-run ZIP
-        run: |
-          rm -rf release release.zip
-          mkdir release
+  - name: Create ready-to-run ZIP
+    run: |
+      rm -rf release release.zip
+      mkdir release
 
-          cp package.json release/
-          cp package-lock.json release/
-          cp -r server release/
-          cp -r src release/
-          cp -r dist release/
-          cp -r node_modules release/
+      cp package.json release/
+      cp package-lock.json release/
 
-          cd release
-          zip -r ../release.zip .
+      cp -r dist release/
+      cp -r dist-server release/
+      cp -r node_modules release/
 
-      - name: Deploy ZIP to Azure App Service
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: release.zip
+      # 可选但建议保留：如果某些运行时代码还会读取源码目录里的知识库/静态数据，可以避免缺文件
+      cp -r src release/
+      cp -r server release/
+
+      cd release
+      zip -r ../release.zip .
+
+  - name: Inspect ZIP
+    run: |
+      ls -lh release.zip
+      unzip -l release.zip | head -80
+
+  - name: Deploy ZIP to Azure App Service
+    uses: azure/webapps-deploy@v3
+    with:
+      app-name: ${{ env.AZURE_WEBAPP_NAME }}
+      publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+      package: release.zip
+  ```
