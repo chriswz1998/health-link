@@ -1,0 +1,66 @@
+name: Deploy finalterm Ready Package
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: finalterm
+  NODE_VERSION: '22.x'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies on Ubuntu
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Remove dev dependencies
+        run: npm prune --omit=dev
+
+      - name: Verify runtime package
+        run: |
+          test -d dist
+          test -f dist/index.html
+          test -f package.json
+          test -d server
+          test -d node_modules
+          test -f node_modules/.bin/tsx
+          npm list tsx --depth=0
+
+      - name: Create ready-to-run ZIP
+        run: |
+          rm -rf release release.zip
+          mkdir release
+
+          cp package.json release/
+          cp package-lock.json release/
+          cp -r server release/
+          cp -r src release/
+          cp -r dist release/
+          cp -r node_modules release/
+
+          cd release
+          zip -r ../release.zip .
+
+      - name: Deploy ZIP to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: release.zip
